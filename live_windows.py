@@ -18,6 +18,9 @@ Ctrl+C stops it; Windows removes the hook when the process exits.
 import argparse, ctypes, glob, json, math, os, sys, time
 from ctypes import wintypes
 
+if sys.platform != "win32":
+    raise SystemExit("live_windows.py is for Windows; on Linux use live.py")
+
 from dataset import FeatureExtractor
 from policy import HoldRelease
 
@@ -111,8 +114,6 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="decide and print, but never block or inject")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
-    if sys.platform != "win32":
-        raise SystemExit("live_windows.py is for Windows; on Linux use live.py")
 
     path = args.weights or default_weights()
     with open(path) as f:
