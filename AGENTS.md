@@ -19,7 +19,7 @@ Instructions for coding agents working in this repo. Read `README.md` for what e
 
 ## Wiki (long-term memory)
 
-The repo-local skills in `.agents/skills/` (symlinked into `.claude/skills/`) maintain `WIKI.md`:
+The repo-local skills maintain `WIKI.md`. They are plain copies in both `.agents/skills/` and `.claude/skills/` (no symlinks); keep the two in sync:
 
 - `write-wiki`: create a `WIKI.md` for a folder that has none, when work there taught something non-obvious
   (a bug with a hidden cause, a new subsystem, rules that must hold).
