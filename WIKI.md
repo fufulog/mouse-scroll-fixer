@@ -61,6 +61,31 @@ flowchart LR
 - The model sees **every raw** wheel report, suppressed ones included. That matches the offline features. *(Source: code)*
 - `Streaming` (NumPy) must match the torch GRU. Verified to within `1.3e-7` (`< 5e-6`) in probability, with identical `hold_release` (100 ms, per-item expiry) output on all validation sessions. Re-verify after changing the model architecture or features. *(Source: code)*
 
+## Windows filter (live_windows.py)
+
+Calibrate and fine-tune on Linux; Windows only runs the filter. Profiles travel as JSON
+(`export_windows.py` → `windows/profiles/*.json`, committed).
+
+| Linux (`live.py`) | Windows (`live_windows.py`) |
+|---|---|
+| evdev EVIOCGRAB + uinput virtual mouse | `WH_MOUSE_LL` low-level hook; swallow by returning 1; re-send with `SendInput` |
+| kernel CLOCK_MONOTONIC timestamps | `time.perf_counter_ns()` at hook time |
+| NumPy `gru_np.Streaming` | pure-Python `PureGRU` (~96 µs/report), stock Python, no packages |
+| one grabbed device | all mice merged: the hook cannot tell devices apart |
+
+- A plain pass returns `CallNextHookEx` (the original event continues). Only suppress or release swallows it. So in the normal case nothing is injected. *(Source: code)*
+- Own injections carry `dwExtraInfo = 0x4D534621` ("MSF!") and pass straight through. Any other `LLMHF_INJECTED` event passes too. *(Source: code)*
+- Non-whole-notch deltas (`delta % 120 != 0`: precision touchpads, true hi-res wheels) pass untouched. *(Source: code)*
+- `PureGRU` matched `gru_np.Streaming` to within 1e-15 on 5,273 recorded reports, for both profiles. Re-check after changing features or the architecture; `FeatureExtractor` is shared via `dataset.py`, which must stay stdlib-only. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 0d67164)*
+- `HoldRelease` lives in `policy.py`, not `live.py`, because `live.py` imports `fcntl` (Linux-only). *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 0d67164)*
+- The default Windows profile is the one with the highest `trained_at` (source .npz mtime), not the newest JSON file. Exports written in the same second made "newest file" pick the wrong mouse. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 0d67164)*
+
+> [!IMPORTANT]
+> Untested on real Windows so far: written and verified on Linux only (compiles; model output matches). Known limits:
+> (1) UIPI: a non-elevated process cannot `SendInput` into elevated (admin) windows, so released ticks are lost there. Run from an elevated terminal if that matters.
+> (2) Windows silently drops an LL hook whose callback is too slow (LowLevelHooksTimeout). The ~100 µs step is far below that.
+> (3) Hook-time timestamps can carry a few ms of scheduling jitter that kernel timestamps do not. If reversals feel worse than on Linux, compare the gap distribution in `live_logs/win-*.jsonl` against the sessions. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 0d67164)*
+
 ## Domain terms
 
 | Term | Definition |
