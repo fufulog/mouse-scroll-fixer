@@ -36,6 +36,11 @@ flowchart LR
 
 ## Fast path
 
+### Access is lost when you switch mice
+* **Symptom**: after swapping receivers, `live.py` says "no read access" for a mouse that worked before.
+* **Reasoning trace**: `setfacl` sets the ACL on the device node. Unplugging destroys the node, and a re-plug creates a fresh `root:input 660` node without the ACL. The same applies to every reboot.
+* **Resolution**: `linux/install_mouse_access.sh` installs `/etc/udev/rules.d/72-mousescrollfixer.rules`. It grants a read-only ACL to the user on every `ID_INPUT_MOUSE` event node at plug-in, excluding anything that is also `ID_INPUT_KEYBOARD`. Read-only on purpose: the common shortcut `TAG+="uaccess"` grants rw, and write access to an evdev node allows injecting events. `/dev/uinput` stays manual (resets on reboot) by the owner's choice, because it allows keystroke injection. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · bc42f03)*
+
 - Access: `sudo setfacl -m u:$USER:r /dev/input/event4`, a read-only ACL on that node only. It is lost on replug or reboot. The user is deliberately **not** in the `input` group, because that group can read the keyboard too. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d)*
 - Live filter also needs `sudo setfacl -m u:$USER:rw /dev/uinput`. This lets any of your processes inject input; revoke after testing with `sudo setfacl -x u:$USER /dev/uinput`. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 07251b5)*
 - Stable path: `/dev/input/by-id/usb-YICHIP_2.4G_Receiver_b120300001-if01-event-mouse`. The `-event-if01` sibling is the consumer-control interface (event6), not the mouse.
