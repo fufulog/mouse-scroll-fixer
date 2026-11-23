@@ -17,11 +17,13 @@ import dataset, gru_np, policy
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASE = os.path.join(HERE, "weights", "base.npz")
 WINDOW, BURN_IN, STRIDE, BATCH = 64, 16, 4, 64
-TRAIN_FRAC, THR, HOLD_MS = 0.75, 0.8, 80
+TRAIN_FRAC, THR, HOLD_MS = 0.75, 0.7, 100
+SYN_FRAC, WD = 0.15, 1e-2
 
 
 def device_sessions(device):
-    return [s for s in dataset.all_sessions() if s["device"] == device]
+    return [s for s in dataset.all_sessions(include_model_tests=True)
+            if s["device"] == device and s["include_in_train"]]
 
 
 def cut_index(s):
@@ -29,16 +31,25 @@ def cut_index(s):
     return f + int((len(s["labels"]) - f) * TRAIN_FRAC)
 
 
-def train_windows(sessions):
+def train_windows(sessions, syn_frac=SYN_FRAC, seed=0):
     xs, ys, ws = [], [], []
+    pad = [0.0] * dataset.IN_DIM
     for s in sessions:
         end, first = cut_index(s), s["first_labelled"]
         for start in range(0, max(end - WINDOW, 0) + 1, STRIDE):
             idx = range(start, start + WINDOW)
-            xs.append([s["feats"][i] if i < end else [0.0, 0.0, 0.0] for i in idx])
+            xs.append([s["feats"][i] if i < end else pad for i in idx])
             ys.append([s["labels"][i] if i < end else 0 for i in idx])
             ws.append([float(s["notches"][i]) if (BURN_IN <= i - start and first <= i < end) else 0.0
                        for i in idx])
+    if syn_frac > 0:
+        sx, sy, sw = dataset.synthetic_reversals(
+            sessions, int(len(xs) * syn_frac), WINDOW, BURN_IN, seed=seed,
+            end_indices={s["name"]: cut_index(s) for s in sessions},
+        )
+        xs += sx
+        ys += sy
+        ws += sw
     return np.array(xs), np.array(ys, dtype=float), np.array(ws)
 
 
@@ -80,13 +91,19 @@ def heldout_metrics(params, sessions):
                     delays.append((emitted[i] - ticks[i][0]) / 1e6)
             else:
                 gl += n
-        if s["mode"] == "sequence":
+        if s["mode"] in ("sequence", "model_test"):
             intents = dataset.sequence_intents(meta, ticks)
             for i in range(max(cut, 1), len(ticks)):
                 if intents[i] != intents[i - 1] and intents[i - 1] != 0:
+                    seg_end = i
+                    while seg_end < len(ticks) and intents[seg_end] == intents[i]:
+                        seg_end += 1
                     j, lost = i, 0
-                    while j < len(ticks) and j not in emitted and ticks[j][1] * intents[i] > 0:
-                        lost += abs(ticks[j][1])
+                    while j < seg_end:
+                        if ticks[j][1] * intents[i] > 0:
+                            if j in emitted:
+                                break
+                            lost += abs(ticks[j][1])
                         j += 1
                     eaten.append(lost)
     return {"jitter_passed": jp, "jitter_total": jt, "good_lost": gl, "good_total": gt,
@@ -100,10 +117,12 @@ def finetune(device, base_path=BASE, epochs=30, lr=1e-3, progress=None, seed=0):
         raise SystemExit(f"no labelled sessions for {device}")
     rng = np.random.default_rng(seed)
     base = gru_np.load(base_path)
-    x, y, w = train_windows(sessions)
+    if base["w_ih"].shape[1] != dataset.IN_DIM:
+        raise SystemExit(f"incompatible base weights {base_path}: expects {base['w_ih'].shape[1]} features, need {dataset.IN_DIM}")
+    x, y, w = train_windows(sessions, seed=seed)
     pos_weight = float((w * (1 - y)).sum() / max((w * y).sum(), 1e-9))
     params = copy.deepcopy(base)
-    opt = gru_np.Adam(params, lr)
+    opt = gru_np.Adam(params, lr, wd=WD)
     best, best_loss = copy.deepcopy(params), heldout_loss(params, sessions, pos_weight)
     base_loss = best_loss
     for epoch in range(epochs):

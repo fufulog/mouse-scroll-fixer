@@ -12,8 +12,7 @@ def hold_release(ticks, suppress, hold_ms):
     it (a real reversal arrives late, not shortened); otherwise they expire."""
     out, held = [], []
     for i, ((t, v), s) in enumerate(zip(ticks, suppress)):
-        if held and t - ticks[held[0]][0] > hold_ms * 1e6:
-            held = []
+        held = [j for j in held if t - ticks[j][0] <= hold_ms * 1e6]
         if s:
             held.append(i)
             continue

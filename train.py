@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from torch import nn
 
-import dataset
+import dataset, gru_np
 from baseline import run_filter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -19,9 +19,9 @@ WINDOW, BURN_IN = 64, 16
 
 
 class JitterGRU(nn.Module):
-    def __init__(self, hidden):
+    def __init__(self, hidden, in_dim=dataset.IN_DIM):
         super().__init__()
-        self.gru = nn.GRU(3, hidden, batch_first=True)
+        self.gru = nn.GRU(in_dim, hidden, batch_first=True)
         self.head = nn.Linear(hidden, 1)
 
     def forward(self, x, h=None):
@@ -38,7 +38,7 @@ def split(sessions):
     return train, val
 
 
-def windows(sessions):
+def windows(sessions, syn_frac=0.15, seed=0):
     xs, ys, ws = [], [], []
     for s in sessions:
         f, lab, notch, first = s["feats"], s["labels"], s["notches"], s["first_labelled"]
@@ -48,7 +48,12 @@ def windows(sessions):
             mask = [0.0 if (i < BURN_IN or start + i < first) else float(notch[start + i])
                     for i in range(WINDOW)]
             ws.append(mask)
-    return torch.tensor(xs), torch.tensor(ys, dtype=torch.float32), torch.tensor(ws)
+    if syn_frac > 0:
+        sx, sy, sw = dataset.synthetic_reversals(sessions, int(len(xs) * syn_frac), WINDOW, BURN_IN, seed=seed)
+        xs += sx
+        ys += sy
+        ws += sw
+    return torch.tensor(xs, dtype=torch.float32), torch.tensor(ys, dtype=torch.float32), torch.tensor(ws, dtype=torch.float32)
 
 
 @torch.no_grad()
@@ -85,21 +90,31 @@ def report(label, rows):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hidden", type=int, default=16)
-    ap.add_argument("--epochs", type=int, default=60)
+    ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--wd", type=float, default=1e-2)
+    ap.add_argument("--syn-frac", type=float, default=0.15)
+    ap.add_argument("--all", action="store_true", help="train on all labelled sessions (no val split)")
+    ap.add_argument("--export-base", action="store_true", help="export weights/base.npz")
     args = ap.parse_args()
     random.seed(args.seed); torch.manual_seed(args.seed); np.random.seed(args.seed)
 
-    train, val = split(dataset.all_sessions())
+    sessions = dataset.all_sessions()
+    if args.all:
+        train, val = sessions, []
+    else:
+        train, val = split(sessions)
     print("train:", [s["name"] for s in train])
-    print("val:  ", [s["name"] for s in val])
-    x, y, w = windows(train)
-    model = JitterGRU(args.hidden)
+    if val:
+        print("val:  ", [s["name"] for s in val])
+    x, y, w = windows(train, syn_frac=args.syn_frac, seed=args.seed)
+    model = JitterGRU(args.hidden, dataset.IN_DIM)
     params = sum(p.numel() for p in model.parameters())
-    print(f"model: GRU hidden={args.hidden}, {params} params, {len(x)} training windows")
+    print(f"model: GRU in={dataset.IN_DIM} hidden={args.hidden}, {params} params, {len(x)} training windows")
 
     pos_weight = float((w * (1 - y)).sum() / (w * y).sum())
-    opt = torch.optim.Adam(model.parameters(), lr=3e-3)
+    opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=args.wd)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)
     lossf = nn.BCEWithLogitsLoss(reduction="none", pos_weight=torch.tensor(pos_weight))
     for epoch in range(args.epochs):
         perm = torch.randperm(len(x))
@@ -108,25 +123,37 @@ def main():
             idx = perm[i:i + 64]
             logits, _ = model(x[idx])
             loss = (lossf(logits, y[idx]) * w[idx]).sum() / w[idx].sum()
-            opt.zero_grad(); loss.backward(); opt.step()
+            opt.zero_grad(); loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step()
             total += loss.item() * len(idx)
+        sched.step()
         if epoch % 10 == 9:
             print(f"  epoch {epoch + 1:3d} loss {total / len(x):.4f}")
 
-    print("\nvalidation (unseen sessions, notch-weighted):")
-    report("rule baseline M=4 W=80", [score(baseline_suppress(s), s) for s in val])
-    probs = {s["name"]: stream_probs(model, s) for s in val}
-    for thr in (0.5, 0.7, 0.8, 0.9, 0.95):
-        report(f"GRU threshold {thr}", [score(probs[s["name"]] > thr, s) for s in val])
-    print("\nper session at threshold 0.8:")
-    for s in val:
-        report(s["name"], [score(probs[s["name"]] > 0.8, s)])
+    if not args.all:
+        print("\nvalidation (unseen sessions, notch-weighted):")
+        report("rule baseline M=4 W=80", [score(baseline_suppress(s), s) for s in val])
+        probs = {s["name"]: stream_probs(model, s) for s in val}
+        for thr in (0.5, 0.6, 0.7, 0.8, 0.9):
+            report(f"GRU threshold {thr}", [score(probs[s["name"]] > thr, s) for s in val])
+        print("\nper session at threshold 0.7:")
+        for s in val:
+            report(s["name"], [score(probs[s["name"]] > 0.7, s)])
 
-    os.makedirs(os.path.join(HERE, "models"), exist_ok=True)
-    out = os.path.join(HERE, "models", f"gru_h{args.hidden}.pt")
-    torch.save({"state": model.state_dict(), "hidden": args.hidden,
-                "train": [s["name"] for s in train]}, out)
-    print(f"\nsaved {out}")
+        os.makedirs(os.path.join(HERE, "models"), exist_ok=True)
+        out = os.path.join(HERE, "models", f"gru_h{args.hidden}.pt")
+        torch.save({"state": model.state_dict(), "hidden": args.hidden, "in_dim": dataset.IN_DIM,
+                    "train": [s["name"] for s in train]}, out)
+        print(f"\nsaved {out}")
+
+    if args.export_base:
+        os.makedirs(os.path.join(HERE, "weights"), exist_ok=True)
+        base_out = os.path.join(HERE, "weights", "base.npz")
+        gru_np.save(base_out, gru_np.from_torch_state(model.state_dict()),
+                    in_dim=dataset.IN_DIM, hidden=args.hidden, thr=0.7, hold_ms=100,
+                    train=[s["name"] for s in train])
+        print(f"exported {base_out}")
 
 
 if __name__ == "__main__":

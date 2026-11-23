@@ -58,13 +58,15 @@ class Reader(threading.Thread):
             return self.recording, self.armed, list(self.events[-4000:])
 
 
-def save(mode, events, cues, started_ns, device=DEVICE):
+def save(mode, events, cues, started_ns, device=DEVICE, extra_meta=None, filename_tag=None):
     os.makedirs(OUT_DIR, exist_ok=True)
-    name = time.strftime("%Y%m%d-%H%M%S") + f"_{mode}.jsonl"
+    name = time.strftime("%Y%m%d-%H%M%S") + f"_{filename_tag or mode}.jsonl"
     path = os.path.join(OUT_DIR, name)
     meta = {"mode": mode, "device": device, "clock": "CLOCK_MONOTONIC",
             "started_ns": started_ns, "cues": cues, "n_events": len(events),
             "sign": "REL_WHEEL > 0 means UP (away from user)"}
+    if extra_meta:
+        meta.update(extra_meta)
     with open(path, "w") as f:
         f.write(json.dumps(meta) + "\n")
         for ev in events:
@@ -146,6 +148,16 @@ def run_free(scr, reader, mode, limit_s=None):
 def plan_alternating():
     dirs = ["up", "down"] * (SEQ_SEGMENTS // 2)
     return [(d, random.uniform(SEQ_MIN_S, SEQ_MAX_S)) for d in dirs] + [("stop", 1.5)]
+
+
+def plan_model_test():
+    """~38 s stress plan: normal reversals, fast reversals, slow 1-click reversals, stop."""
+    return (
+        [(d, random.uniform(2.5, 3.5), "normal") for d in ("up", "down", "up", "down")]
+        + [(d, random.uniform(1.5, 2.2), "fast") for d in ("up", "down", "up", "down")]
+        + [(d, random.uniform(3.5, 4.5), "slow") for d in ("up", "down")]
+        + [("stop", 1.5, "stop")]
+    )
 
 
 def run_sequence(scr, reader, mode, plan):

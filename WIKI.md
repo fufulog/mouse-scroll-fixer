@@ -22,16 +22,16 @@ flowchart LR
 | [recorder.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/recorder.py) | curses UI; a reader thread on the evdev fd; modes `d`/`u`/`s`/`r` |
 | [analyze.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/analyze.py) | Per-session stats: against-intent rate, bursts, reversal delays, cue reaction |
 | [baseline.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/baseline.py) | Hold-and-confirm rule filter, grid over M (notches) × W (ms) |
-| [dataset.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/dataset.py) | Per-report features `[v/4, log gap, sign]` and labels (1 = jitter) |
-| [train.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/train.py) | Trains the streaming GRU (h=16, 1025 params, ~15 s on CPU). Saves to `models/` (gitignored; rerun to regenerate) |
-| [policy.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/policy.py) | Output policies: `drop` deletes suppressed reports; `hold_release` holds them and releases them on a confirmed reversal |
-| [evaluate.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/evaluate.py) | Validation scores per policy plus a per-reversal breakdown. Start here when judging a model |
-| [app.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/app.py) | Calibration TUI: pick mouse → record (down, up, 2× sequence) → fine-tune → save profile → exec live.py |
-| [finetune.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/finetune.py) | NumPy fine-tune from `weights/base.npz`; time split 75/25 per session; keeps the best held-out epoch |
-| [gru_np.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/gru_np.py) | NumPy GRU: streaming step, BPTT, Adam. Same parameter layout as torch (gates r,z,n) |
+| [dataset.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/dataset.py) | `FeatureExtractor`: 5 causal features `[sign, log_mag, log_gap, same_sign, log_burst_run]`, labels (`1` = jitter), and `synthetic_reversals` |
+| [train.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/train.py) | Trains the streaming GRU (in=5, h=16, 1,121 params, AdamW + cosine LR + synthetic reversals). Saves leave-session-out ckpt to `models/`; `--all --export-base` exports `weights/base.npz` |
+| [policy.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/policy.py) | Output policies: `drop` deletes suppressed reports; `hold_release` (default 100 ms, per-item expiry) holds them and releases on a confirmed reversal |
+| [evaluate.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/evaluate.py) | Validation scores per policy plus a per-reversal breakdown (`thr=0.7`, `hold_ms=100`). Start here when judging a model |
+| [app.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/app.py) | Calibration TUI + closed-loop `--against-model [--label TAG]` failure audit (`mode: "model_test"` saved as `sessions/*_against_model*.jsonl`, excluded from `train.py`/`evaluate.py`, opt-in for `finetune.py` via `include_in_train`) |
+| [finetune.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/finetune.py) | NumPy fine-tune from `weights/base.npz` (AdamW `wd=1e-2` + leak-free synthetic reversals); time split 75/25 per session + opt-in `model_test` sessions; keeps the best held-out epoch |
+| [gru_np.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/gru_np.py) | NumPy GRU: streaming step (via `dataset.FeatureExtractor`), BPTT, Adam/AdamW. Same parameter layout as torch (gates r,z,n) |
 | [devices.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/devices.py) | Wheel-mouse discovery from `/proc/bus/input/devices`; by-id path; `profiles/<slug>.npz` |
-| `weights/base.npz` | Committed base weights (exported from the torch model). Every fine-tune starts here |
-| [live.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/live.py) | Live filter: EVIOCGRAB on the real mouse, a uinput virtual copy, NumPy single-step GRU (~7 µs/report), hold/release. Logs each wheel decision to `live_logs/` (gitignored) |
+| `weights/base.npz` | Committed base weights (exported via `train.py --all --export-base` across all 6 sessions). Every fine-tune starts here |
+| [live.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/live.py) | Live filter (`thr=0.7`, `hold_ms=100`, per-item expiry): EVIOCGRAB on the real mouse, a uinput virtual copy, NumPy single-step GRU, hold/release. Line-buffers wheel decisions (`buffering=1`) to `live_logs/` (gitignored) |
 | `sessions/` | The dataset. One JSONL file per recording |
 
 ## Fast path
@@ -49,7 +49,7 @@ flowchart LR
 | App / fine-tune / live | + NumPy | app, finetune, gru_np, live, devices |
 | Research | + torch (`uv run --group research`) | train, evaluate |
 
-- `gru_np.loss_and_grads` must match torch autograd. Checked to within 1e-17 on every parameter. Re-run that check after changing the model or loss. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 1279849)*
+- `gru_np.loss_and_grads` must match torch autograd. Checked to `< 1e-16` (`max_diff = 8.3e-17`) on every parameter of the 5-feature model. Re-run that check after changing the model or loss. *(Source: code)*
 - Sessions are tied to a mouse by `meta.device` (the stable by-id path). Fine-tune and the app's counters filter on it. *(Source: code)*
 - Profiles resolve as `profiles/<slug(device)>.npz`, else `weights/base.npz` (live.py and app). *(Source: code)*
 - True hi-res mice (hi-res ≠ 120 × notch) are filtered at notch granularity only. live.py warns about it. *(Source: code)*
@@ -59,7 +59,7 @@ flowchart LR
 - The grab is held on the evdev fd. When the process exits or crashes, the kernel drops it and the real mouse works directly again. No cleanup is needed for safety. *(Source: code)*
 - Each SYN frame: non-wheel events pass unchanged; `REL_WHEEL` and `REL_WHEEL_HI_RES` are both removed and re-emitted from the policy's output as `(sum, sum*120)`. Forwarding hi-res alone would bypass the filter, because libinput scrolls from hi-res. *(Source: code)*
 - The model sees **every raw** wheel report, suppressed ones included. That matches the offline features. *(Source: code)*
-- `StreamingGRU` (NumPy) must match the torch GRU. Verified to within 5e-6 in probability, with identical hold/release output on all validation sessions. Re-verify after changing the model architecture or features. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 07251b5)*
+- `Streaming` (NumPy) must match the torch GRU. Verified to within `1.3e-7` (`< 5e-6`) in probability, with identical `hold_release` (100 ms, per-item expiry) output on all validation sessions. Re-verify after changing the model architecture or features. *(Source: code)*
 
 ## Domain terms
 
@@ -117,13 +117,13 @@ Conclusion so far: a notch-count threshold cannot separate the two, because jitt
 
 ## Model results (2026-11-23, 6 sessions)
 
-Validation = the second down, up and sequence sessions, unseen in training. Notch-weighted, threshold 0.8.
+Validation = the second down, up and sequence sessions, unseen in training (`models/gru_h16.pt` trained strictly on the first 3 sessions; `weights/base.npz` is exported via `train.py --all --export-base` across all 6 sessions). Notch-weighted, threshold 0.7.
 
 | Policy | Jitter passed | Good lost | Good delayed |
 |---|---|---|---|
 | Rule baseline M=4 W=80 | 15.6% | 0.82% | n/a |
-| GRU, drop | 1.4% | 1.49% | 0 |
-| GRU, hold_release 80 ms | 2.4% | 0.67% | 24 reports, median 25 ms, max 80 ms |
+| GRU (5-feat), drop | 0.0% (0/289) | 0.82% (26/3157) | 0 |
+| GRU (5-feat), hold_release 100 ms | 1.0% (3/289) | 0.00% (0/3157) | 24 reports, median 26 ms, max 88 ms |
 
 > [!IMPORTANT]
-> Single-direction sessions score 100% / 0% almost trivially, because "suppress anything against the recent direction" is perfect there. The real test is the **real reversals** in `sequence` sessions. The model acts as a learned direction latch with hysteresis: most reversals lose 1–4 notches (8–80 ms), but two down→up reversals lost 9–12 notches (~300–540 ms, the wheel feels stuck). Only ~18 real reversals exist in the data, versus thousands of same-direction reports. More `s` recordings are the main lever. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · c860c5c)*
+> Single-direction sessions score 100% / 0% almost trivially, because "suppress anything against the recent direction" is perfect there. The real test is the **real reversals** in `sequence` sessions. With the 5 causal features (`sign`, `log_mag`, `log_gap`, `same_sign`, `log_burst_run`), AdamW weight decay (`1e-2`), synthetic spliced reversals (`syn_frac=0.15`), and per-item `hold_release(100ms)` expiry at `thr=0.7`, all 9 validation reversals in `20261123-102355_sequence.jsonl` pass with **0 notches lost** and worst first-pass latency **88 ms** (previously up to 12 notches lost / 600 ms). *(Source: code)*

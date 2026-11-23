@@ -13,7 +13,7 @@ mouse works directly again.
 """
 import argparse, array, fcntl, json, os, struct, sys, time
 
-import devices, gru_np
+import dataset, devices, gru_np
 
 DEVICE = "/dev/input/by-id/usb-YICHIP_2.4G_Receiver_b120300001-if01-event-mouse"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -71,7 +71,7 @@ class HoldRelease:
         self.held = []  # (t_ns, v)
 
     def feed(self, t_ns, v, suppress):
-        self.held = [(t, hv) for t, hv in self.held if t_ns - self.held[0][0] <= self.hold_ns]
+        self.held = [(t, hv) for t, hv in self.held if t_ns - t <= self.hold_ns]
         if suppress:
             self.held.append((t_ns, v))
             return []
@@ -80,32 +80,66 @@ class HoldRelease:
         return released + [v]
 
 
+def pick_device(explicit=None):
+    if explicit:
+        if not os.path.exists(explicit):
+            raise SystemExit(f"Device not found: {explicit}")
+        if not os.access(explicit, os.R_OK):
+            raise SystemExit(f"No read access to {explicit}.\nGrant it: {devices.access_hint(explicit)}")
+        return explicit
+    mice = devices.wheel_mice()
+    if not mice:
+        raise SystemExit("No mouse with a scroll wheel found.")
+    if len(mice) == 1:
+        m = mice[0]
+        if not m["readable"]:
+            raise SystemExit(f"No read access to {m['name']} ({m['path']}).\nGrant it: {devices.access_hint(m['path'])}")
+        return m["path"]
+    readable = [m for m in mice if m["readable"]]
+    if len(readable) == 1:
+        return readable[0]["path"]
+    lines = ["Multiple wheel mice found — pass --device PATH or run app.py:"]
+    for m in mice:
+        hint = "readable" if m["readable"] else f"no access: {devices.access_hint(m['path'])}"
+        lines.append(f"  {m['name']}: {m['path']} ({hint})")
+    raise SystemExit("\n".join(lines))
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--device", default=DEVICE)
+    ap.add_argument("--device", default=None, help="default: auto-detect connected wheel mouse")
     ap.add_argument("--weights", help="default: the device's profile, else weights/base.npz")
-    ap.add_argument("--thr", type=float, default=0.8)
-    ap.add_argument("--hold-ms", type=float, default=80)
+    ap.add_argument("--thr", type=float, default=0.7)
+    ap.add_argument("--hold-ms", type=float, default=100)
     ap.add_argument("--dry-run", action="store_true", help="don't grab; print decisions only")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
-    weights = args.weights or devices.weights_for(args.device)
-    model, policy = gru_np.Streaming(gru_np.load(weights)), HoldRelease(args.hold_ms)
-    fd = os.open(args.device, os.O_RDONLY)
+    device = pick_device(args.device)
+    if not args.dry_run and not os.access("/dev/uinput", os.W_OK):
+        raise SystemExit("No write access to /dev/uinput.\nGrant it: sudo setfacl -m u:$USER:rw /dev/uinput")
+
+    weights = args.weights or devices.weights_for(device)
+    params = gru_np.load(weights)
+    in_dim = params["w_ih"].shape[1]
+    if in_dim != dataset.IN_DIM:
+        raise SystemExit(f"incompatible weights {weights}: expects {in_dim} features, need {dataset.IN_DIM} "
+                         f"(re-run train.py --all --export-base or re-tune)")
+    model, policy = gru_np.Streaming(params), HoldRelease(args.hold_ms)
+    fd = os.open(device, os.O_RDONLY)
     fcntl.ioctl(fd, EVIOCSCLOCKID, struct.pack("i", time.CLOCK_MONOTONIC))
     ufd = None
     if not args.dry_run:
-        ufd = make_virtual(fd, args.device)
+        ufd = make_virtual(fd, device)
         time.sleep(0.3)  # let the compositor pick up the virtual device before we grab
         fcntl.ioctl(fd, EVIOCGRAB, 1)
 
     os.makedirs(os.path.join(HERE, "live_logs"), exist_ok=True)
     log_path = os.path.join(HERE, "live_logs", time.strftime("%Y%m%d-%H%M%S") + ".jsonl")
-    log = open(log_path, "w")
-    log.write(json.dumps({"thr": args.thr, "hold_ms": args.hold_ms, "weights": weights, "device": args.device,
+    log = open(log_path, "w", buffering=1)
+    log.write(json.dumps({"thr": args.thr, "hold_ms": args.hold_ms, "weights": weights, "device": device,
                           "dry_run": args.dry_run}) + "\n")
-    print(f"{'DRY RUN' if args.dry_run else 'FILTERING'}  thr={args.thr} hold={args.hold_ms}ms  "
+    print(f"{'DRY RUN' if args.dry_run else 'FILTERING'}  thr={args.thr} hold={args.hold_ms}ms  device={device}\n"
           f"weights={os.path.relpath(weights, HERE)}\nlog={log_path}\nCtrl+C to stop (the real mouse comes back immediately).", flush=True)
 
     frame, passed, suppressed, warned_hires = [], 0, 0, False

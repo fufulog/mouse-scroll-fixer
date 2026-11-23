@@ -8,7 +8,7 @@ import math
 
 import numpy as np
 
-from dataset import GAP_CAP_MS
+from dataset import FeatureExtractor
 
 NAMES = ("w_ih", "w_hh", "b_ih", "b_hh", "w_out", "b_out")
 
@@ -33,23 +33,16 @@ def from_torch_state(sd):
             "w_out": g["head.weight"][0], "b_out": g["head.bias"].reshape(())}
 
 
-def feature(gap_ms, v):
-    gap = min(gap_ms, GAP_CAP_MS)
-    return [v / 4.0, math.log1p(gap) / math.log1p(GAP_CAP_MS), 1.0 if v > 0 else -1.0]
-
-
 class Streaming:
     """One report at a time, for the live filter."""
 
     def __init__(self, params):
         self.p = params
         self.h = np.zeros(params["w_hh"].shape[1])
-        self.prev_t = None
+        self.fe = FeatureExtractor()
 
     def step(self, t_ns, v):
-        gap = GAP_CAP_MS if self.prev_t is None else (t_ns - self.prev_t) / 1e6
-        self.prev_t = t_ns
-        x = np.array(feature(gap, v))
+        x = np.array(self.fe.step(t_ns, v))
         p, H = self.p, len(self.h)
         gi, gh = p["w_ih"] @ x + p["b_ih"], p["w_hh"] @ self.h + p["b_hh"]
         r = sigmoid(gi[:H] + gh[:H])
@@ -60,7 +53,7 @@ class Streaming:
 
 
 def forward(p, x):
-    """x: (B, T, 3) -> logits (B, T), cache for backward."""
+    """x: (B, T, D) -> logits (B, T), cache for backward."""
     B, T, _ = x.shape
     H = p["w_hh"].shape[1]
     h = np.zeros((B, H))
@@ -115,8 +108,8 @@ def loss_and_grads(p, x, y, w, pos_weight):
 
 
 class Adam:
-    def __init__(self, params, lr, clip=1.0):
-        self.lr, self.clip, self.t = lr, clip, 0
+    def __init__(self, params, lr, clip=1.0, wd=0.0):
+        self.lr, self.clip, self.wd, self.t = lr, clip, wd, 0
         self.m = {k: np.zeros_like(v) for k, v in params.items()}
         self.v = {k: np.zeros_like(v) for k, v in params.items()}
 
@@ -125,6 +118,8 @@ class Adam:
         scale = min(1.0, self.clip / (norm + 1e-12))
         self.t += 1
         for k in params:
+            if self.wd:
+                params[k] *= 1.0 - self.lr * self.wd
             gk = grads[k] * scale
             self.m[k] = b1 * self.m[k] + (1 - b1) * gk
             self.v[k] = b2 * self.v[k] + (1 - b2) * gk * gk
