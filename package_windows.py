@@ -28,6 +28,10 @@ README = """MouseScrollFixer for Windows
 
 test.bat shows what the filter would do without changing anything.
 Run at login: press Win+R, type shell:startup, put a shortcut to start.bat in that folder.
+
+NOTE: this Windows version is untested on real Windows. If scrolling acts up, close the
+window; the filter stops immediately. Logs are written to the live_logs folder.
+Known limit: scrolling inside programs run as administrator may lose some ticks.
 """
 
 

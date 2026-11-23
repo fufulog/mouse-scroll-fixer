@@ -4,7 +4,15 @@ Experiment: suppress mouse-wheel jitter (ticks in the wrong direction, worst at 
 in real time, ideally with a very small model (< 1M params, likely < 10k) sitting between the
 device and the compositor.
 
-Mouse: `YICHIP 2.4G Receiver Mouse` (USB 3515:3020), read via evdev.
+Mice so far: `YICHIP 2.4G Receiver Mouse` (USB 3515:3020) and a generic `USB Receiver` mouse, read via evdev.
+
+## Status
+
+| Part | State |
+|---|---|
+| Linux live filter (`live.py`) | Works; used daily, "basically perfect" on both mice |
+| Calibration app (`app.py`) | Works; per-mouse fine-tune in seconds |
+| Windows filter (`live_windows.py`, zip) | **Untested on real Windows.** Written and checked on Linux only (imports, model output matches the NumPy GRU). Expect first-run bugs. |
 
 ## App
 
@@ -17,27 +25,39 @@ Pick a mouse, record the three steps (down, up, 2× cued sequence; about 2.5 min
 to `profiles/<device>.npz`, and launch the live filter with it. `live.py` loads a device's profile
 automatically and falls back to the base weights.
 
-## Windows
+## Windows (untested)
 
-Calibrate on Linux, run on Windows. `live_windows.py` needs only a stock Python 3 (python.org or
-`winget install Python.Python.3.13`): no NumPy, no driver, no admin.
+> Not yet run on a real Windows machine. The hook, `SendInput` and the batch files have only been
+> checked on Linux. If it misbehaves, close the window: Windows removes the hook when the process exits.
 
-1. On Linux, export a profile (already done for both mice; the JSON files are committed):
-   `uv run python export_windows.py profiles/<device>.npz`
-2. On Windows, get the repo (`git clone`, or copy the folder) and run in a terminal:
-   ```bat
-   py live_windows.py --dry-run     REM decides and prints, changes nothing
-   py live_windows.py               REM filters for real; Ctrl+C stops
-   ```
-   It defaults to the most recently trained profile in `windows/profiles/`; pick another with
-   `--weights windows\profiles\<name>.json`.
-3. Start it at login (optional): Task Scheduler → Create Task → trigger "At log on" → action
-   `pythonw.exe` with arguments `live_windows.py --quiet` and "Start in" set to the repo folder.
+Calibrate on Linux, run on Windows. Normal users get one zip:
 
-How it differs from Linux: a low-level mouse hook (`WH_MOUSE_LL`) replaces evdev grab + uinput. Passed
-ticks continue untouched; suppressed ticks are swallowed; released ticks are re-sent with
-`SendInput`. The hook sees all mice merged, so it filters every whole-notch wheel event (precision
-touchpads and true hi-res wheels send partial notches and pass through untouched).
+```sh
+uv run python export_windows.py profiles/<device>.npz   # after a new fine-tune; JSON lands in windows/profiles/
+python3 package_windows.py                              # -> dist/MouseScrollFixer-windows.zip
+```
+
+On the Windows machine:
+
+1. Install Python 3 from python.org (tick "Add python.exe to PATH"). No NumPy, driver or admin needed.
+2. Unzip, double-click `start.bat`. Close the window to stop.
+3. `test.bat` = dry run: prints what it would suppress, changes nothing.
+4. Run at login: Win+R → `shell:startup` → put a shortcut to `start.bat` there.
+
+It uses the most recently trained profile in `windows/profiles/`; pick another with
+`py live_windows.py --weights windows\profiles\<name>.json`. Logs go to `live_logs\win-*.jsonl`.
+
+How it works: a low-level mouse hook (`WH_MOUSE_LL`) replaces evdev grab + uinput. Passed ticks
+continue untouched; suppressed ticks are swallowed; released ticks are re-sent with `SendInput`
+(tagged so the hook ignores its own events).
+
+Known limits:
+
+- The hook sees all mice merged, so it filters every whole-notch wheel event with one profile.
+  Precision touchpads and true hi-res wheels send partial notches and pass untouched.
+- Released ticks can't reach elevated (admin) windows (UIPI). Run it elevated if that matters.
+- Windows drops a hook whose callback is too slow; one model step is ~100 µs, far under the limit.
+- Timestamps come from the hook, not the device, so gaps can be a few ms off versus Linux training data.
 
 ## Scripts
 
@@ -51,6 +71,9 @@ touchpads and true hi-res wheels send partial notches and pass through untouched
 | `live.py` | Live filter: grabs the mouse, re-emits through a uinput virtual mouse |
 | `devices.py` | Finds wheel mice, stable paths, profile paths |
 | `train.py` / `evaluate.py` | Research: torch training of the base model. `uv run --group research python train.py` |
+| `live_windows.py` | Windows live filter (untested): low-level mouse hook, pure-Python GRU |
+| `export_windows.py` | `.npz` profile → `windows/profiles/*.json` for Windows |
+| `package_windows.py` | Builds `dist/MouseScrollFixer-windows.zip` (filter, profiles, `start.bat`, `test.bat`, `README.txt`) |
 | `baseline.py` | Rule-based filter (hold opposite ticks, release if ≥ M notches within W ms) scored on the sessions. The bar a model has to beat. |
 
 ```sh
