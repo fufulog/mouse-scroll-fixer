@@ -68,7 +68,7 @@ flowchart LR
 
 ## Windows filter (live_windows.py)
 
-Ship it with `python3 package_windows.py` → `dist/MouseScrollFixer-windows.zip` (gitignored). The zip holds `live_windows.py`, `dataset.py`, `policy.py`, the JSON profiles, `start.bat`, `test.bat` and `README.txt`. If `live_windows.py` gains an import, add the file to `FILES` in `package_windows.py`. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 3428285)*
+Ship it with `python3 package_windows.py` → `dist/MouseScrollFixer-windows.zip` (gitignored). The zip holds `live_windows.py`, `dataset.py`, `policy.py`, the JSON profiles, `start.bat`, `test.bat` and `README.txt`. If `live_windows.py` gains an import, add the file to `FILES` in `package_windows.py`. The zip's README.txt and README.md both say the Windows version is untested; drop those notes once it has run on a real Windows machine. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · bc2c5a6)* *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 3428285)*
 
 Calibrate and fine-tune on Linux; Windows only runs the filter. Profiles travel as JSON
 (`export_windows.py` → `windows/profiles/*.json`, committed).
