@@ -26,13 +26,22 @@ flowchart LR
 | [train.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/train.py) | Trains the streaming GRU (h=16, 1025 params, ~15 s on CPU). Saves to `models/` (gitignored; rerun to regenerate) |
 | [policy.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/policy.py) | Output policies: `drop` deletes suppressed reports; `hold_release` holds them and releases them on a confirmed reversal |
 | [evaluate.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/evaluate.py) | Validation scores per policy plus a per-reversal breakdown. Start here when judging a model |
+| [live.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/live.py) | Live filter: EVIOCGRAB on the real mouse, a uinput virtual copy, NumPy single-step GRU (~7 µs/report), hold/release. Logs each wheel decision to `live_logs/` (gitignored) |
 | `sessions/` | The dataset. One JSONL file per recording |
 
 ## Fast path
 
 - Access: `sudo setfacl -m u:$USER:r /dev/input/event4`, a read-only ACL on that node only. It is lost on replug or reboot. The user is deliberately **not** in the `input` group, because that group can read the keyboard too. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d)*
+- Live filter also needs `sudo setfacl -m u:$USER:rw /dev/uinput`. This lets any of your processes inject input; revoke after testing with `sudo setfacl -x u:$USER /dev/uinput`. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 07251b5)*
 - Stable path: `/dev/input/by-id/usb-YICHIP_2.4G_Receiver_b120300001-if01-event-mouse`. The `-event-if01` sibling is the consumer-control interface (event6), not the mouse.
 - Quick probe without the UI: `python3 -c "import recorder,time; r=recorder.Reader(recorder.DEVICE); r.start(); r.start_session(armed=False); time.sleep(3); print(len(r.stop_session()))"`
+
+## Live filter rules
+
+- The grab is held on the evdev fd. When the process exits or crashes, the kernel drops it and the real mouse works directly again. No cleanup is needed for safety. *(Source: code)*
+- Each SYN frame: non-wheel events pass unchanged; `REL_WHEEL` and `REL_WHEEL_HI_RES` are both removed and re-emitted from the policy's output as `(sum, sum*120)`. Forwarding hi-res alone would bypass the filter, because libinput scrolls from hi-res. *(Source: code)*
+- The model sees **every raw** wheel report, suppressed ones included. That matches the offline features. *(Source: code)*
+- `StreamingGRU` (NumPy) must match the torch GRU. Verified to within 5e-6 in probability, with identical hold/release output on all validation sessions. Re-verify after changing the model architecture or features. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 07251b5)*
 
 ## Domain terms
 
