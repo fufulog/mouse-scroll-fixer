@@ -56,4 +56,5 @@ def weights_for(device_path):
 
 
 def access_hint(path):
-    return f"sudo setfacl -m u:$USER:r {os.path.realpath(path)}"
+    return (f"sudo setfacl -m u:$USER:r {os.path.realpath(path)}   (this plug-in only)\n"
+            f"  permanent, every mouse: sudo {os.path.join(HERE, 'linux', 'install_mouse_access.sh')}")

@@ -101,7 +101,8 @@ def main():
 
     device = pick_device(args.device)
     if not args.dry_run and not os.access("/dev/uinput", os.W_OK):
-        raise SystemExit("No write access to /dev/uinput.\nGrant it: sudo setfacl -m u:$USER:rw /dev/uinput")
+        raise SystemExit("No write access to /dev/uinput (resets on every reboot, by design).\n"
+                         "Grant it until the next reboot: sudo setfacl -m u:$USER:rw /dev/uinput")
 
     weights = args.weights or devices.weights_for(device)
     params = gru_np.load(weights)

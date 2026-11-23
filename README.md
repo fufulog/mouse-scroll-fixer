@@ -61,6 +61,13 @@ python3 baseline.py
 
 ## Device access
 
+Permanent, for every mouse you plug in (read-only ACL via a udev rule; keyboards excluded):
+`sudo linux/install_mouse_access.sh`. Undo: `sudo rm /etc/udev/rules.d/72-mousescrollfixer.rules`.
+`/dev/uinput` (needed by `live.py`) is deliberately left manual and resets each reboot, because it
+allows injecting keystrokes: `sudo setfacl -m u:$USER:rw /dev/uinput`.
+
+### Old one-off method
+
 Your user is not in the `input` group (on purpose: that group can read the keyboard too).
 Grant read access to just the mouse node; it resets on replug or reboot:
 
