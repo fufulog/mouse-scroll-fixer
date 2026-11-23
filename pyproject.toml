@@ -2,7 +2,10 @@
 name = "mousescrollfixer"
 version = "0.1.0"
 requires-python = ">=3.12,<3.14"
-dependencies = ["torch>=2.5", "numpy>=2"]
+dependencies = ["numpy>=2"]
+
+[dependency-groups]
+research = ["torch>=2.5"]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

@@ -85,15 +85,19 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "numpy" },
+]
+
+[package.dev-dependencies]
+research = [
     { name = "torch", version = "2.15.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.15.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "numpy", specifier = ">=2" },
-    { name = "torch", specifier = ">=2.5", index = "https://download.pytorch.org/whl/cpu" },
-]
+requires-dist = [{ name = "numpy", specifier = ">=2" }]
+
+[package.metadata.requires-dev]
+research = [{ name = "torch", specifier = ">=2.5", index = "https://download.pytorch.org/whl/cpu" }]
 
 [[package]]
 name = "mpmath"

@@ -72,7 +72,7 @@ def session_examples(path):
     labels = [1 if ticks[i][1] * intents[i] < 0 else 0 for i in range(len(ticks))]
     feats = features(ticks)
     first = keep[0] if keep else len(ticks)
-    return {"name": os.path.basename(path), "mode": mode, "feats": feats, "labels": labels,
+    return {"name": os.path.basename(path), "mode": mode, "device": meta.get("device"), "feats": feats, "labels": labels,
             "notches": [abs(v) for _, v in ticks], "first_labelled": first}
 
 

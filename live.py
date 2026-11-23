@@ -7,15 +7,13 @@ GRU plus the hold/release policy; everything else passes untouched.
 If this process exits for any reason the kernel drops the grab and the real
 mouse works directly again.
 
-  uv run python live.py              # filter live
-  uv run python live.py --dry-run    # no grab: just print what it would do
+  python live.py                     # filter live (device's profile, else base weights)
+  python live.py --device PATH --weights FILE
+  python live.py --dry-run           # no grab: just print what it would do
 """
-import argparse, array, fcntl, json, math, os, struct, sys, time
+import argparse, array, fcntl, json, os, struct, sys, time
 
-import numpy as np
-import torch
-
-from dataset import GAP_CAP_MS
+import devices, gru_np
 
 DEVICE = "/dev/input/by-id/usb-YICHIP_2.4G_Receiver_b120300001-if01-event-mouse"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,7 +39,15 @@ def supported(fd, ev, maxcode):
     return [c for c in range(maxcode + 1) if buf[c // 8] >> (c % 8) & 1]
 
 
-def make_virtual(src_fd):
+def source_ids(path):
+    sysdir = f"/sys/class/input/{os.path.basename(os.path.realpath(path))}/device/id"
+    try:
+        return tuple(int(open(f"{sysdir}/{k}").read(), 16) for k in ("bustype", "vendor", "product"))
+    except OSError:
+        return (0x03, 0x1, 0x1)
+
+
+def make_virtual(src_fd, src_path):
     """Create a uinput mouse with the same key/rel/msc capabilities as the source."""
     ufd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
     for ev, maxcode in ((EV_KEY, KEY_MAX), (EV_REL, REL_MAX), (EV_MSC, MSC_MAX)):
@@ -50,35 +56,11 @@ def make_virtual(src_fd):
             fcntl.ioctl(ufd, UI_SET_EVBIT, ev)
             for c in codes:
                 fcntl.ioctl(ufd, UI_SET_BIT[ev], c)
-    setup = struct.pack("HHHH80sI", 0x03, 0x3515, 0x3020, 1, b"MouseScrollFixer virtual mouse", 0)
+    bus, vendor, product = source_ids(src_path)
+    setup = struct.pack("HHHH80sI", bus, vendor, product, 1, b"MouseScrollFixer virtual mouse", 0)
     fcntl.ioctl(ufd, UI_DEV_SETUP, setup)
     fcntl.ioctl(ufd, UI_DEV_CREATE)
     return ufd
-
-
-class StreamingGRU:
-    """NumPy single-step GRU, numerically identical to the trained torch module."""
-
-    def __init__(self, path):
-        sd = torch.load(path)["state"]
-        g = {k: v.numpy().astype(np.float64) for k, v in sd.items()}
-        self.w_ih, self.w_hh = g["gru.weight_ih_l0"], g["gru.weight_hh_l0"]
-        self.b_ih, self.b_hh = g["gru.bias_ih_l0"], g["gru.bias_hh_l0"]
-        self.w_out, self.b_out = g["head.weight"][0], g["head.bias"][0]
-        self.h = np.zeros(self.w_hh.shape[1])
-        self.prev_t = None
-
-    def step(self, t_ns, v):
-        gap = GAP_CAP_MS if self.prev_t is None else min((t_ns - self.prev_t) / 1e6, GAP_CAP_MS)
-        self.prev_t = t_ns
-        x = np.array([v / 4.0, math.log1p(gap) / math.log1p(GAP_CAP_MS), 1.0 if v > 0 else -1.0])
-        H = len(self.h)
-        gi, gh = self.w_ih @ x + self.b_ih, self.w_hh @ self.h + self.b_hh
-        r = 1 / (1 + np.exp(-(gi[:H] + gh[:H])))
-        z = 1 / (1 + np.exp(-(gi[H:2 * H] + gh[H:2 * H])))
-        n = np.tanh(gi[2 * H:] + r * gh[2 * H:])
-        self.h = (1 - z) * n + z * self.h
-        return 1 / (1 + math.exp(-(self.w_out @ self.h + self.b_out)))
 
 
 class HoldRelease:
@@ -100,31 +82,33 @@ class HoldRelease:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default=os.path.join(HERE, "models", "gru_h16.pt"))
+    ap.add_argument("--device", default=DEVICE)
+    ap.add_argument("--weights", help="default: the device's profile, else weights/base.npz")
     ap.add_argument("--thr", type=float, default=0.8)
     ap.add_argument("--hold-ms", type=float, default=80)
     ap.add_argument("--dry-run", action="store_true", help="don't grab; print decisions only")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
-    model, policy = StreamingGRU(args.model), HoldRelease(args.hold_ms)
-    fd = os.open(DEVICE, os.O_RDONLY)
+    weights = args.weights or devices.weights_for(args.device)
+    model, policy = gru_np.Streaming(gru_np.load(weights)), HoldRelease(args.hold_ms)
+    fd = os.open(args.device, os.O_RDONLY)
     fcntl.ioctl(fd, EVIOCSCLOCKID, struct.pack("i", time.CLOCK_MONOTONIC))
     ufd = None
     if not args.dry_run:
-        ufd = make_virtual(fd)
+        ufd = make_virtual(fd, args.device)
         time.sleep(0.3)  # let the compositor pick up the virtual device before we grab
         fcntl.ioctl(fd, EVIOCGRAB, 1)
 
     os.makedirs(os.path.join(HERE, "live_logs"), exist_ok=True)
     log_path = os.path.join(HERE, "live_logs", time.strftime("%Y%m%d-%H%M%S") + ".jsonl")
     log = open(log_path, "w")
-    log.write(json.dumps({"thr": args.thr, "hold_ms": args.hold_ms, "model": args.model,
+    log.write(json.dumps({"thr": args.thr, "hold_ms": args.hold_ms, "weights": weights, "device": args.device,
                           "dry_run": args.dry_run}) + "\n")
     print(f"{'DRY RUN' if args.dry_run else 'FILTERING'}  thr={args.thr} hold={args.hold_ms}ms  "
-          f"log={log_path}\nCtrl+C to stop (the real mouse comes back immediately).", flush=True)
+          f"weights={os.path.relpath(weights, HERE)}\nlog={log_path}\nCtrl+C to stop (the real mouse comes back immediately).", flush=True)
 
-    frame, passed, suppressed = [], 0, 0
+    frame, passed, suppressed, warned_hires = [], 0, 0, False
     try:
         while True:
             data = os.read(fd, EVENT.size * 64)
@@ -135,6 +119,11 @@ def main():
                     continue
                 t_ns = sec * 1_000_000_000 + usec * 1000
                 wheel = next((v for ty, c, v in frame if ty == EV_REL and c == REL_WHEEL), None)
+                hires = next((v for ty, c, v in frame if ty == EV_REL and c == REL_WHEEL_HI_RES), None)
+                if hires is not None and not warned_hires and (wheel is None or hires != wheel * 120):
+                    warned_hires = True
+                    print("  note: this mouse has true hi-res scrolling; the filter only sees whole notches "
+                          "and re-emits them as such, so scrolling will be coarser.", flush=True)
                 out = [e for e in frame if not (e[0] == EV_REL and e[1] in (REL_WHEEL, REL_WHEEL_HI_RES))]
                 if wheel is not None:
                     p = model.step(t_ns, wheel)

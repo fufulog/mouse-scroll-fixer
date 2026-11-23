@@ -6,12 +6,29 @@ device and the compositor.
 
 Mouse: `YICHIP 2.4G Receiver Mouse` (USB 3515:3020), read via evdev.
 
+## App
+
+```sh
+uv run python app.py        # needs only Python 3 + NumPy
+```
+
+Pick a mouse, record the three steps (down, up, 2× cued sequence; about 2.5 minutes), fine-tune
+(seconds, starting from `weights/base.npz`), compare base vs tuned on held-out data, save the profile
+to `profiles/<device>.npz`, and launch the live filter with it. `live.py` loads a device's profile
+automatically and falls back to the base weights.
+
 ## Scripts
 
 | Script | What it does |
 |---|---|
 | `recorder.py` | Terminal UI that records raw evdev events, labelled by intent: `d` down, `u` up, `s` cued up/down sequence, `r` rest. Writes `sessions/<time>_<mode>.jsonl`. |
 | `analyze.py` | Per-session summary: jitter rate, bursts ending in a reversal, reversal delays, reaction times. |
+| `app.py` | Calibration TUI: record → fine-tune → save profile → launch |
+| `finetune.py` | NumPy fine-tuning for one device (CLI too: `python finetune.py <device path> --out profiles/x.npz`) |
+| `gru_np.py` | NumPy GRU: streaming step, batched forward/backward (checked against torch autograd), Adam |
+| `live.py` | Live filter: grabs the mouse, re-emits through a uinput virtual mouse |
+| `devices.py` | Finds wheel mice, stable paths, profile paths |
+| `train.py` / `evaluate.py` | Research: torch training of the base model. `uv run --group research python train.py` |
 | `baseline.py` | Rule-based filter (hold opposite ticks, release if ≥ M notches within W ms) scored on the sessions. The bar a model has to beat. |
 
 ```sh
@@ -38,4 +55,5 @@ the same clock. `REL_WHEEL` (type 2, code 8) > 0 means up.
 ## Working rules
 
 - Sessions are the dataset: commit them, never rewrite them. Re-label in the analysis code instead.
-- Stdlib only for recording and analysis, so it runs anywhere without a venv.
+- Stdlib only for recording and analysis. App, fine-tuning and live filter: NumPy only. Torch stays in the `research` group.
+- `weights/base.npz` is committed (the starting point for every fine-tune). `profiles/`, `models/`, `live_logs/` are per-machine and gitignored.

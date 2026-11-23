@@ -22,6 +22,7 @@ SEQ_SEGMENTS, SEQ_MIN_S, SEQ_MAX_S = 10, 2.5, 4.5
 class Reader(threading.Thread):
     def __init__(self, path):
         super().__init__(daemon=True)
+        self.path = path
         self.fd = os.open(path, os.O_RDONLY)
         fcntl.ioctl(self.fd, EVIOCSCLOCKID, struct.pack("i", time.CLOCK_MONOTONIC))
         self.lock = threading.Lock()
@@ -57,11 +58,11 @@ class Reader(threading.Thread):
             return self.recording, self.armed, list(self.events[-4000:])
 
 
-def save(mode, events, cues, started_ns):
+def save(mode, events, cues, started_ns, device=DEVICE):
     os.makedirs(OUT_DIR, exist_ok=True)
     name = time.strftime("%Y%m%d-%H%M%S") + f"_{mode}.jsonl"
     path = os.path.join(OUT_DIR, name)
-    meta = {"mode": mode, "device": DEVICE, "clock": "CLOCK_MONOTONIC",
+    meta = {"mode": mode, "device": device, "clock": "CLOCK_MONOTONIC",
             "started_ns": started_ns, "cues": cues, "n_events": len(events),
             "sign": "REL_WHEEL > 0 means UP (away from user)"}
     with open(path, "w") as f:
@@ -105,7 +106,7 @@ def pending_keys(scr):
     return keys
 
 
-def run_free(scr, reader, mode):
+def run_free(scr, reader, mode, limit_s=None):
     reader.start_session(armed=True)
     started = time.monotonic_ns()
     scr.nodelay(True)
@@ -117,11 +118,15 @@ def run_free(scr, reader, mode):
             reader.stop_session()
             return "discarded"
         recording, armed, evs = reader.snapshot()
+        if limit_s and evs and (evs[-1][0] - evs[0][0]) / 1e9 > limit_s:
+            break
         scr.erase()
         h, w = scr.getmaxyx()
         title = {"down": "SCROLL DOWN ▼", "up": "SCROLL UP ▲", "rest": "REST: finger on wheel, don't scroll"}[mode]
         scr.addstr(1, 2, title, curses.A_BOLD | curses.A_REVERSE)
         state = "waiting for first wheel event…" if armed else "RECORDING — ENTER to stop & save, q to discard"
+        if limit_s and evs and not armed:
+            state += f"   ({max(0, limit_s - (evs[-1][0] - evs[0][0]) / 1e9):.0f}s left)"
         if mode == "rest":
             state = "RECORDING — ENTER to stop & save, q to discard"
             if armed:
@@ -135,7 +140,7 @@ def run_free(scr, reader, mode):
         scr.refresh()
         time.sleep(0.016)
     events = reader.stop_session()
-    return save(mode, events, [], started)
+    return save(mode, events, [], started, reader.path)
 
 
 def plan_alternating():
@@ -175,7 +180,7 @@ def run_sequence(scr, reader, mode, plan):
             scr.refresh()
             time.sleep(0.008)
     events = reader.stop_session()
-    return save(mode, events, cues, started)
+    return save(mode, events, cues, started, reader.path)
 
 
 def main(scr):
