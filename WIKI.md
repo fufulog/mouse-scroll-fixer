@@ -118,6 +118,8 @@ Calibrate and fine-tune on Linux; Windows only runs the filter. Profiles travel 
 - In free `d`/`u` sessions the user scrolls in bursts and pauses at will. Pauses are detected from tick gaps, not cued or timed (user's explicit choice). *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d)*
 
 - `.agents/skills/{write-wiki,update-wiki}` and `.claude/skills/` (same files) are plain copies of the global skills, no symlinks (user's choice; the repo must work on other machines). Re-copy to pick up changes to the global versions. Agent rules live in `AGENTS.md`; `CLAUDE.md` only imports it. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 143b32c)*
+- The repo is public (github.com/fufulog/mouse-scroll-fixer). Committed files must not hold local absolute paths, other projects' code or the owner's personal email: wiki links are repo-relative, and commits use `fufulog <8282162+fufulog@users.noreply.github.com>` (set in this repo's git config). History was rewritten once to remove these. *(Source: t3:50e11e17-bf24-499d-ae5e-43ccd65587c1 · a6d3892, 03a8a6e)*
+- The repo's `write-wiki` copy has **no `examples/` folder** on purpose (the global one shows code from other private projects). When re-copying the global skills, leave `examples/` out and keep the SKILL.md line that points to the root `WIKI.md`. *(Source: t3:50e11e17-bf24-499d-ae5e-43ccd65587c1 · 03a8a6e)*
 
 ## Findings so far (4 sessions, 2026-11-23)
 
