@@ -14,6 +14,7 @@ mouse works directly again.
 import argparse, array, fcntl, json, os, struct, sys, time
 
 import dataset, devices, gru_np
+from policy import HoldRelease
 
 DEVICE = "/dev/input/by-id/usb-YICHIP_2.4G_Receiver_b120300001-if01-event-mouse"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -61,23 +62,6 @@ def make_virtual(src_fd, src_path):
     fcntl.ioctl(ufd, UI_DEV_SETUP, setup)
     fcntl.ioctl(ufd, UI_DEV_CREATE)
     return ufd
-
-
-class HoldRelease:
-    """Live version of policy.hold_release: returns the wheel notches to emit now."""
-
-    def __init__(self, hold_ms):
-        self.hold_ns = hold_ms * 1_000_000
-        self.held = []  # (t_ns, v)
-
-    def feed(self, t_ns, v, suppress):
-        self.held = [(t, hv) for t, hv in self.held if t_ns - t <= self.hold_ns]
-        if suppress:
-            self.held.append((t_ns, v))
-            return []
-        released = [hv for _, hv in self.held if hv * v > 0]
-        self.held = [(t, hv) for t, hv in self.held if hv * v < 0]
-        return released + [v]
 
 
 def pick_device(explicit=None):

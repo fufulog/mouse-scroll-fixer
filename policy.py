@@ -21,3 +21,20 @@ def hold_release(ticks, suppress, hold_ms):
         held = [j for j in held if ticks[j][1] * v < 0]
         out.append((t, v, i))
     return out
+
+
+class HoldRelease:
+    """Live version of policy.hold_release: returns the wheel notches to emit now."""
+
+    def __init__(self, hold_ms):
+        self.hold_ns = hold_ms * 1_000_000
+        self.held = []  # (t_ns, v)
+
+    def feed(self, t_ns, v, suppress):
+        self.held = [(t, hv) for t, hv in self.held if t_ns - t <= self.hold_ns]
+        if suppress:
+            self.held.append((t_ns, v))
+            return []
+        released = [hv for _, hv in self.held if hv * v > 0]
+        self.held = [(t, hv) for t, hv in self.held if hv * v < 0]
+        return released + [v]

@@ -17,6 +17,28 @@ Pick a mouse, record the three steps (down, up, 2× cued sequence; about 2.5 min
 to `profiles/<device>.npz`, and launch the live filter with it. `live.py` loads a device's profile
 automatically and falls back to the base weights.
 
+## Windows
+
+Calibrate on Linux, run on Windows. `live_windows.py` needs only a stock Python 3 (python.org or
+`winget install Python.Python.3.13`): no NumPy, no driver, no admin.
+
+1. On Linux, export a profile (already done for both mice; the JSON files are committed):
+   `uv run python export_windows.py profiles/<device>.npz`
+2. On Windows, get the repo (`git clone`, or copy the folder) and run in a terminal:
+   ```bat
+   py live_windows.py --dry-run     REM decides and prints, changes nothing
+   py live_windows.py               REM filters for real; Ctrl+C stops
+   ```
+   It defaults to the most recently trained profile in `windows/profiles/`; pick another with
+   `--weights windows\profiles\<name>.json`.
+3. Start it at login (optional): Task Scheduler → Create Task → trigger "At log on" → action
+   `pythonw.exe` with arguments `live_windows.py --quiet` and "Start in" set to the repo folder.
+
+How it differs from Linux: a low-level mouse hook (`WH_MOUSE_LL`) replaces evdev grab + uinput. Passed
+ticks continue untouched; suppressed ticks are swallowed; released ticks are re-sent with
+`SendInput`. The hook sees all mice merged, so it filters every whole-notch wheel event (precision
+touchpads and true hi-res wheels send partial notches and pass through untouched).
+
 ## Scripts
 
 | Script | What it does |
