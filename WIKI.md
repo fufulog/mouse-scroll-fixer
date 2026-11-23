@@ -19,19 +19,19 @@ flowchart LR
 
 | File | Role |
 |---|---|
-| [recorder.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/recorder.py) | curses UI; a reader thread on the evdev fd; modes `d`/`u`/`s`/`r` |
-| [analyze.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/analyze.py) | Per-session stats: against-intent rate, bursts, reversal delays, cue reaction |
-| [baseline.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/baseline.py) | Hold-and-confirm rule filter, grid over M (notches) × W (ms) |
-| [dataset.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/dataset.py) | `FeatureExtractor`: 5 causal features `[sign, log_mag, log_gap, same_sign, log_burst_run]`, labels (`1` = jitter), and `synthetic_reversals` |
-| [train.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/train.py) | Trains the streaming GRU (in=5, h=16, 1,121 params, AdamW + cosine LR + synthetic reversals). Saves leave-session-out ckpt to `models/`; `--all --export-base` exports `weights/base.npz` |
-| [policy.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/policy.py) | Output policies: `drop` deletes suppressed reports; `hold_release` (default 100 ms, per-item expiry) holds them and releases on a confirmed reversal |
-| [evaluate.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/evaluate.py) | Validation scores per policy plus a per-reversal breakdown (`thr=0.7`, `hold_ms=100`). Start here when judging a model |
-| [app.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/app.py) | Calibration TUI + closed-loop `--against-model [--label TAG]` failure audit (`mode: "model_test"` saved as `sessions/*_against_model*.jsonl`, excluded from `train.py`/`evaluate.py`, opt-in for `finetune.py` via `include_in_train`) |
-| [finetune.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/finetune.py) | NumPy fine-tune from `weights/base.npz` (AdamW `wd=1e-2` + leak-free synthetic reversals); time split 75/25 per session + opt-in `model_test` sessions; keeps the best held-out epoch |
-| [gru_np.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/gru_np.py) | NumPy GRU: streaming step (via `dataset.FeatureExtractor`), BPTT, Adam/AdamW. Same parameter layout as torch (gates r,z,n) |
-| [devices.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/devices.py) | Wheel-mouse discovery from `/proc/bus/input/devices`; by-id path; `profiles/<slug>.npz` |
+| [recorder.py](recorder.py) | curses UI; a reader thread on the evdev fd; modes `d`/`u`/`s`/`r` |
+| [analyze.py](analyze.py) | Per-session stats: against-intent rate, bursts, reversal delays, cue reaction |
+| [baseline.py](baseline.py) | Hold-and-confirm rule filter, grid over M (notches) × W (ms) |
+| [dataset.py](dataset.py) | `FeatureExtractor`: 5 causal features `[sign, log_mag, log_gap, same_sign, log_burst_run]`, labels (`1` = jitter), and `synthetic_reversals` |
+| [train.py](train.py) | Trains the streaming GRU (in=5, h=16, 1,121 params, AdamW + cosine LR + synthetic reversals). Saves leave-session-out ckpt to `models/`; `--all --export-base` exports `weights/base.npz` |
+| [policy.py](policy.py) | Output policies: `drop` deletes suppressed reports; `hold_release` (default 100 ms, per-item expiry) holds them and releases on a confirmed reversal |
+| [evaluate.py](evaluate.py) | Validation scores per policy plus a per-reversal breakdown (`thr=0.7`, `hold_ms=100`). Start here when judging a model |
+| [app.py](app.py) | Calibration TUI + closed-loop `--against-model [--label TAG]` failure audit (`mode: "model_test"` saved as `sessions/*_against_model*.jsonl`, excluded from `train.py`/`evaluate.py`, opt-in for `finetune.py` via `include_in_train`) |
+| [finetune.py](finetune.py) | NumPy fine-tune from `weights/base.npz` (AdamW `wd=1e-2` + leak-free synthetic reversals); time split 75/25 per session + opt-in `model_test` sessions; keeps the best held-out epoch |
+| [gru_np.py](gru_np.py) | NumPy GRU: streaming step (via `dataset.FeatureExtractor`), BPTT, Adam/AdamW. Same parameter layout as torch (gates r,z,n) |
+| [devices.py](devices.py) | Wheel-mouse discovery from `/proc/bus/input/devices`; by-id path; `profiles/<slug>.npz` |
 | `weights/base.npz` | Committed base weights (exported via `train.py --all --export-base` across all 6 sessions). Every fine-tune starts here |
-| [live.py](file:///home/joseph/Projects/Repos/MouseScrollFixer/live.py) | Live filter (`thr=0.7`, `hold_ms=100`, per-item expiry): EVIOCGRAB on the real mouse, a uinput virtual copy, NumPy single-step GRU, hold/release. Line-buffers wheel decisions (`buffering=1`) to `live_logs/` (gitignored) |
+| [live.py](live.py) | Live filter (`thr=0.7`, `hold_ms=100`, per-item expiry): EVIOCGRAB on the real mouse, a uinput virtual copy, NumPy single-step GRU, hold/release. Line-buffers wheel decisions (`buffering=1`) to `live_logs/` (gitignored) |
 | `sessions/` | The dataset. One JSONL file per recording |
 
 ## Fast path
