@@ -133,6 +133,4 @@ Add this note directly under the wiki's header, so readers of the wiki know how 
 > Entries cite their evidence as `t3:<thread_id>` (open with `t3_thread_read`), `antigravity:<conv-id>` (`~/.gemini/antigravity*/brain/<conv-id>/`), a commit hash, or `code`. If an entry is vague, conflicts with another entry, or does not match what you see, open its source before trusting either.
 ```
 
-See [REFERENCE.md](REFERENCE.md) for the full section template and the examples directory for concrete exemplars:
-- [reports_wiki.md](examples/reports_wiki.md) — financial ontology, column mapping matrices, entity relationship rules.
-- [services_wiki.md](examples/services_wiki.md) — domain ontologies with formal boundaries, priority resolution hierarchies, behavioral relationship tables, system invariants.
+See [REFERENCE.md](REFERENCE.md) for the full section template, and the repo-root `WIKI.md` for a concrete exemplar.

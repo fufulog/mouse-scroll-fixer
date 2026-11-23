@@ -47,7 +47,7 @@ graph TD
 ### Key Files and Directories
 
 * **<Layer/Category>**:
-  * [FileName.ext](file:///absolute/path): <One-line purpose description.>
+  * [FileName.ext](relative/path/from/the/wiki): <One-line purpose description.>
 ```
 
 ### Extraction Rules
@@ -212,7 +212,7 @@ graph TD
 
 The `/<directory>` contains diagnostic scripts used to debug <domain> issues:
 
-* **[script_name.py](file:///absolute/path)**: <One-line description of what it does.>
+* **[script_name.py](relative/path/from/the/wiki)**: <One-line description of what it does.>
 ```
 
 ### Extraction Rules
