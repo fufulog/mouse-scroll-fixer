@@ -117,7 +117,7 @@ Calibrate and fine-tune on Linux; Windows only runs the filter. Profiles travel 
 - Recording and analysis use the standard library only; training uses the `uv` project (torch from the CPU index). *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d)*
 - In free `d`/`u` sessions the user scrolls in bursts and pauses at will. Pauses are detected from tick gaps, not cued or timed (user's explicit choice). *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d)*
 
-- `.agents/skills/{write-wiki,update-wiki}` are copies of the global skills, not links (the repo must work on other machines); `.claude/skills/` symlinks into them. Re-copy to pick up changes to the global versions. Agent rules live in `AGENTS.md`; `CLAUDE.md` only imports it. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 143b32c)*
+- `.agents/skills/{write-wiki,update-wiki}` and `.claude/skills/` (same files) are plain copies of the global skills, no symlinks (user's choice; the repo must work on other machines). Re-copy to pick up changes to the global versions. Agent rules live in `AGENTS.md`; `CLAUDE.md` only imports it. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 143b32c)*
 
 ## Findings so far (4 sessions, 2026-11-23)
 
