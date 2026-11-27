@@ -137,6 +137,15 @@ Conclusion so far: a notch-count threshold cannot separate the two, because jitt
 > [!IMPORTANT]
 > The fine-tune held-out split for the YICHIP mouse is not clean against the base model: base trained on the first 3 sessions in full, so its held-out score there is optimistic. A fair comparison needs new sessions, or a different mouse. *(Source: t3:1139490a-2822-4da5-b9ab-0c6bf8b3304d · 1279849)*
 
+## Live-use audit (2026-11-27, 13 live logs, ~50k reports)
+
+Live logs have no labels, so these are heuristics: a "real reversal" is ≥ 3× more notches in the new direction over the next 1.5 s.
+
+- **Pauses do not reset the expected direction.** The first report after a pause that goes against the previous report is suppressed 54% of the time after < 150 ms, and still 60% after ≥ 3 s. Cause: training has almost no long pauses (down/up sessions: 2 reports after a ≥ 1 s gap, against ~5,900 in live use), and `GAP_CAP_MS = 2000` makes 2 s and 2 min look the same. Of 1,351 real reversals after a ≥ 1 s pause, 59% had the first report suppressed, and 18% lost notches (1.7 on average).
+- **Reversals lose their whole first stroke when the hold expires.** The model needs ~3 reports in the new direction before p drops below 0.7. A stroke is ~80 ms followed by a 200–300 ms gap, so with `hold_ms = 100` a short first stroke (e.g. `-1, -5`) expires before the next stroke confirms it, and is lost.
+- Cued tests (`against_model`, YICHIP profile) look fine by comparison: jitter passed 5/41 and 6/37, good lost 3/420 and 6/385, reversal wait mostly < 70 ms. They contain no long pauses and no slow, sparse scrolling, so they miss both failures above.
+*(Source: t3:50e11e17-bf24-499d-ae5e-43ccd65587c1 · ec75b37)*
+
 ## Historical issues
 
 ### Enter / q ignored while recording
