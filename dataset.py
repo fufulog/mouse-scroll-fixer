@@ -16,6 +16,7 @@ ONSET_RUN = 3
 INTENT_SIGN = {"up": 1, "down": -1}
 GAP_CAP_MS = 2000.0
 BURST_GAP_MS = 100.0
+RESET_GAP_MS = 500.0  # live models start fresh after a pause this long
 LOG_GAP_CAP = math.log1p(GAP_CAP_MS)
 LOG_MAG_CAP = math.log1p(4.0)
 LOG_RUN_CAP = math.log1p(8.0)
@@ -58,6 +59,15 @@ class FeatureExtractor:
         self.prev_t = None
         self.prev_s = 0
         self.burst_run = 0
+
+    def pause_reset(self, t_ns):
+        """True (and forget the past) when t_ns comes RESET_GAP_MS or more after the
+        last report. Live models then zero their hidden state, so the first report
+        after a pause is judged like the first report ever, not against the old direction."""
+        if self.prev_t is None or t_ns - self.prev_t < RESET_GAP_MS * 1e6:
+            return False
+        self.__init__()
+        return True
 
     def step(self, t_ns, v):
         gap = GAP_CAP_MS if self.prev_t is None else min(max((t_ns - self.prev_t) / 1e6, 0.0), GAP_CAP_MS)

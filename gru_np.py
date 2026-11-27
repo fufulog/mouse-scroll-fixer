@@ -42,6 +42,8 @@ class Streaming:
         self.fe = FeatureExtractor()
 
     def step(self, t_ns, v):
+        if self.fe.pause_reset(t_ns):
+            self.h = np.zeros_like(self.h)
         x = np.array(self.fe.step(t_ns, v))
         p, H = self.p, len(self.h)
         gi, gh = p["w_ih"] @ x + p["b_ih"], p["w_hh"] @ self.h + p["b_hh"]

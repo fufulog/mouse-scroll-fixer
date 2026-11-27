@@ -25,6 +25,9 @@ Pick a mouse, record the three steps (down, up, 2× cued sequence; about 2.5 min
 to `profiles/<device>.npz`, and launch the live filter with it. `live.py` loads a device's profile
 automatically and falls back to the base weights.
 
+After a pause of 0.5 s or more the live model starts fresh (`RESET_GAP_MS` in `dataset.py`), so
+scrolling the other way after a pause is not judged against the old direction.
+
 ## Windows (untested)
 
 > Not yet run on a real Windows machine. The hook, `SendInput` and the batch files have only been

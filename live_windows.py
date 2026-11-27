@@ -83,6 +83,8 @@ class PureGRU:
         self.fe = FeatureExtractor()
 
     def step(self, t_ns, v):
+        if self.fe.pause_reset(t_ns):
+            self.h = [0.0] * self.H
         x, h, H = self.fe.step(t_ns, v), self.h, self.H
         gi = [sum(w * xi for w, xi in zip(row, x)) + b for row, b in zip(self.w_ih, self.b_ih)]
         gh = [sum(w * hj for w, hj in zip(row, h)) + b for row, b in zip(self.w_hh, self.b_hh)]
